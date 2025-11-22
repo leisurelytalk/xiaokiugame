@@ -280,7 +280,7 @@
       if (gameOver) return;
       const x = gameWidth + 20;
       const y = Math.random() * (gameHeight - 48);
-      const speed = 1 + Math.random() * 2;
+      const speed = 1 + Math.random() * 1.5;
       enemies.push(new Enemy(x, y, speed, 'minion'));
     }
 
@@ -428,7 +428,7 @@
     }
 
     let enemySpawnTimer = 0;
-    const enemySpawnInterval = 40;
+    const enemySpawnInterval = 30;
 
     function spawnEnemyLoop() {
       if (!gameOver) {
@@ -455,3 +455,4 @@
 </body>
 
 </html>
+
