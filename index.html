@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>小喬的勇敢冒險 🎵</title>
+  <style>
+    body {
+      font-family: "Comic Sans MS", cursive, sans-serif;
+      text-align: center;
+      background-color: #f0f8ff;
+      margin: 0;
+      padding: 20px;
+      user-select: none;
+    }
+    h1 {
+      color: #d2691e;
+      margin-bottom: 10px;
+    }
+    #scoreBoard {
+      font-size: 24px;
+      margin-bottom: 10px;
+      color: #2e8b57;
+    }
+    #lifeBoard {
+      font-size: 18px;
+      margin-bottom: 10px;
+      color: #b22222;
+    }
+    #message {
+      font-size: 20px;
+      color: #444;
+      margin-top: 10px;
+      height: 24px;
+    }
+    #gameCanvas {
+      border: 3px solid #666;
+      display: block;
+      margin: 0 auto;
+      touch-action: none; /* 防止手機預設滾動 */
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>小喬的勇敢冒險 🎵</h1>
+  <div id="scoreBoard">分數: 0</div>
+  <div id="lifeBoard">生命: 5</div>
+  <canvas id="gameCanvas" width="480" height="360"></canvas>
+  <div id="message"></div>
+  <p>用滑鼠或手機觸控拖曳小喬移動，聲波會自動發射攻擊敵人！</p>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const scoreBoard = document.getElementById('scoreBoard');
+    const lifeBoard = document.getElementById('lifeBoard');
+    const message = document.getElementById('message');
+
+    const gameWidth = canvas.width;
+    const gameHeight = canvas.height;
+
+    // 背景圖片
+    const backgroundImage = new Image();
+    backgroundImage.src = "https://pic.vjshi.com/2022-08-31/1d2047c2d6c4440e89a71dfd9b36b5eb/online/main.jpg?x-oss-process=style/video_cover_20231101";
+
+    // 小喬圖片
+    const xiaoQiaoImage = new Image();
+    xiaoQiaoImage.src = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRYJ29ZxktmJn-doJvRQIYp3kkHgv--cS-J8Q&s";
+
+    // 周瑜圖片
+    const zhouYuImage = new Image();
+    zhouYuImage.src = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT_p79U-GkY4Na8we4_Qi1QFibTE3146r--yw&usqp=CAU";
+
+    // 敵人圖片（小魔物）
+    const enemyImage = new Image();
+    enemyImage.src = "https://truth.bahamut.com.tw/s01/201711/b0ddccb8157c1fc9b1ac4b8d2792b305.PNG";
+
+    // 魔王圖片
+    const bossImage = new Image();
+    bossImage.src = "https://i.redd.it/udqadk1jj2nb1.png";
+
+    const xiaoQiao = {
+      x: 50,
+      y: gameHeight / 2 - 32,
+      width: 64,
+      height: 64,
+      life: 5,
+      canAttack: true,
+      attackCooldown: 500
+    };
+
+    const zhouYu = {
+      x: xiaoQiao.x + xiaoQiao.width + 10,
+      y: xiaoQiao.y + 10,
+      width: 50,
+      height: 50,
+      speed: 4,
+      isActive: false,
+      attackCooldown: 800,
+      canAttack: true
+    };
+
+    const soundWaves = [];
+    const soundWaveSpeed = 8;
+    const soundWaveWidth = 20;
+    const soundWaveHeight = 10;
+    const soundWaveColor = '#7fffd4';
+
+    class Enemy {
+      constructor(x, y, speed, type = 'minion') {
+        this.x = x;
+        this.y = y;
+        this.width = 48;
+        this.height = 48;
+        this.speed = speed;
+        this.type = type;
+        this.life = (type === 'boss') ? 20 : 3;
+        this.isAlive = true;
+        this.moveDirection = Math.random() < 0.5 ? 1 : -1;
+      }
+      move() {
+        if (!this.isAlive) return;
+        this.x += this.speed * this.moveDirection;
+        if (this.x < 0) {
+          this.x = 0;
+          this.moveDirection = 1;
+        } else if (this.x + this.width > gameWidth) {
+          this.x = gameWidth - this.width;
+          this.moveDirection = -1;
+        }
+        if (this.y < xiaoQiao.y) {
+          this.y += this.speed / 2;
+        } else {
+          this.y -= this.speed / 2;
+        }
+      }
+      draw() {
+        if (!this.isAlive) return;
+        if (this.type === 'boss') {
+          if (bossImage.complete) {
+            ctx.drawImage(bossImage, this.x, this.y, this.width, this.height);
+          } else {
+            ctx.fillStyle = '#8b0000';
+            ctx.fillRect(this.x, this.y, this.width, this.height);
+          }
+        } else {
+          if (enemyImage.complete) {
+            ctx.drawImage(enemyImage, this.x, this.y, this.width, this.height);
+          } else {
+            ctx.fillStyle = '#555555';
+            ctx.fillRect(this.x, this.y, this.width, this.height);
+          }
+        }
+        ctx.fillStyle = 'red';
+        const hpWidth = (this.width) * (this.life / ((this.type === 'boss') ? 20 : 3));
+        ctx.fillRect(this.x, this.y - 6, hpWidth, 4);
+      }
+    }
+
+    let enemies = [];
+    let boss = null;
+
+    let score = 0;
+    let gameOver = false;
+
+    // 觸控拖曳狀態
+    let isDragging = false;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+
+    function getPointerPos(evt) {
+      const rect = canvas.getBoundingClientRect();
+      let x, y;
+      if (evt.touches) {
+        x = evt.touches[0].clientX - rect.left;
+        y = evt.touches[0].clientY - rect.top;
+      } else {
+        x = evt.clientX - rect.left;
+        y = evt.clientY - rect.top;
+      }
+      return {x, y};
+    }
+
+    canvas.addEventListener('mousedown', e => {
+      const pos = getPointerPos(e);
+      if (pos.x >= xiaoQiao.x && pos.x <= xiaoQiao.x + xiaoQiao.width &&
+          pos.y >= xiaoQiao.y && pos.y <= xiaoQiao.y + xiaoQiao.height) {
+        isDragging = true;
+        dragOffsetX = pos.x - xiaoQiao.x;
+        dragOffsetY = pos.y - xiaoQiao.y;
+      }
+    });
+
+    canvas.addEventListener('touchstart', e => {
+      const pos = getPointerPos(e);
+      if (pos.x >= xiaoQiao.x && pos.x <= xiaoQiao.x + xiaoQiao.width &&
+          pos.y >= xiaoQiao.y && pos.y <= xiaoQiao.y + xiaoQiao.height) {
+        isDragging = true;
+        dragOffsetX = pos.x - xiaoQiao.x;
+        dragOffsetY = pos.y - xiaoQiao.y;
+      }
+    });
+
+    window.addEventListener('mouseup', e => {
+      isDragging = false;
+    });
+
+    window.addEventListener('touchend', e => {
+      isDragging = false;
+    });
+
+    window.addEventListener('mousemove', e => {
+      if (isDragging) {
+        const pos = getPointerPos(e);
+        xiaoQiao.x = pos.x - dragOffsetX;
+        xiaoQiao.y = pos.y - dragOffsetY;
+        if (xiaoQiao.x < 0) xiaoQiao.x = 0;
+        if (xiaoQiao.y < 0) xiaoQiao.y = 0;
+        if (xiaoQiao.x + xiaoQiao.width > gameWidth) xiaoQiao.x = gameWidth - xiaoQiao.width;
+        if (xiaoQiao.y + xiaoQiao.height > gameHeight) xiaoQiao.y = gameHeight - xiaoQiao.height;
+      }
+    });
+
+    window.addEventListener('touchmove', e => {
+      if (isDragging) {
+        const pos = getPointerPos(e);
+        xiaoQiao.x = pos.x - dragOffsetX;
+        xiaoQiao.y = pos.y - dragOffsetY;
+        if (xiaoQiao.x < 0) xiaoQiao.x = 0;
+        if (xiaoQiao.y < 0) xiaoQiao.y = 0;
+        if (xiaoQiao.x + xiaoQiao.width > gameWidth) xiaoQiao.x = gameWidth - xiaoQiao.width;
+        if (xiaoQiao.y + xiaoQiao.height > gameHeight) xiaoQiao.y = gameHeight - xiaoQiao.height;
+        e.preventDefault(); // 防止滾動
+      }
+    }, {passive:false});
+
+    // 自動攻擊間隔計時器
+    let autoAttackTimer = 0;
+    const autoAttackInterval = 300;
+
+    function playerAttack() {
+      if (!xiaoQiao.canAttack || gameOver) return;
+      const wave = {
+        x: xiaoQiao.x + xiaoQiao.width,
+        y: xiaoQiao.y + xiaoQiao.height / 2 - soundWaveHeight / 2,
+        width: soundWaveWidth,
+        height: soundWaveHeight,
+        speed: soundWaveSpeed,
+        color: soundWaveColor
+      };
+      soundWaves.push(wave);
+      xiaoQiao.canAttack = false;
+      setTimeout(() => { xiaoQiao.canAttack = true; }, xiaoQiao.attackCooldown);
+    }
+
+    function zhouYuAttack() {
+      if (!zhouYu.canAttack || gameOver) return;
+      const wave = {
+        x: zhouYu.x + zhouYu.width,
+        y: zhouYu.y + zhouYu.height / 2 - soundWaveHeight / 2,
+        width: soundWaveWidth,
+        height: soundWaveHeight,
+        speed: soundWaveSpeed,
+        color: '#1e90ff'
+      };
+      soundWaves.push(wave);
+      zhouYu.canAttack = false;
+      setTimeout(() => { zhouYu.canAttack = true; }, zhouYu.attackCooldown);
+    }
+
+    function isColliding(a, b) {
+      return a.x < b.x + b.width &&
+             a.x + a.width > b.x &&
+             a.y < b.y + b.height &&
+             a.y + a.height > b.y;
+    }
+
+    function spawnEnemy() {
+      if (gameOver) return;
+      const x = gameWidth + 20;
+      const y = Math.random() * (gameHeight - 48);
+      const speed = 1 + Math.random() * 1.5;
+      enemies.push(new Enemy(x, y, speed, 'minion'));
+    }
+
+    function spawnBoss() {
+      if (boss) return;
+      boss = new Enemy(gameWidth + 50, gameHeight / 2 - 24, 1.5, 'boss');
+      enemies.push(boss);
+    }
+
+    function update(deltaTime) {
+      if (gameOver) return;
+
+      autoAttackTimer += deltaTime;
+      if (autoAttackTimer >= autoAttackInterval) {
+        playerAttack();
+        autoAttackTimer = 0;
+      }
+
+      if (zhouYu.isActive) {
+        const targetX = xiaoQiao.x + xiaoQiao.width + 10;
+        const targetY = xiaoQiao.y + 10;
+        zhouYu.x += (targetX - zhouYu.x) * 0.1;
+        zhouYu.y += (targetY - zhouYu.y) * 0.1;
+
+        if (Math.random() < 0.02) zhouYuAttack();
+      }
+
+      for (let i = soundWaves.length - 1; i >= 0; i--) {
+        const wave = soundWaves[i];
+        wave.x += wave.speed;
+        if (wave.x > gameWidth) {
+          soundWaves.splice(i, 1);
+          continue;
+        }
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const enemy = enemies[j];
+          if (!enemy.isAlive) continue;
+          if (isColliding(wave, enemy)) {
+            enemy.life -= 1;
+            soundWaves.splice(i, 1);
+            if (enemy.life <= 0) {
+              enemy.isAlive = false;
+              score += (enemy.type === 'boss') ? 50 : 10;
+              updateScore();
+              if (enemy.type === 'boss') gameWin();
+            }
+            break;
+          }
+        }
+      }
+
+      enemies.forEach(enemy => {
+        if (!enemy.isAlive) return;
+        enemy.move();
+
+        if (isColliding(enemy, xiaoQiao)) {
+          if (enemy.type !== 'boss') {
+            enemy.isAlive = false;
+          }
+          xiaoQiao.life -= 1;
+          updateLife();
+          if (xiaoQiao.life <= 0) {
+            gameOver = true;
+            message.textContent = '小喬被打敗了，遊戲結束 😢';
+          } else {
+            message.textContent = '小喬受傷了！生命剩下 ' + xiaoQiao.life;
+            setTimeout(() => { message.textContent = ''; }, 2000);
+          }
+        }
+      });
+
+      if (score >= 100 && !zhouYu.isActive) {
+        zhouYu.isActive = true;
+        zhouYu.x = gameWidth;
+      }
+
+      if (score >= 200 && !boss) {
+        spawnBoss();
+        message.textContent = '魔王出現了！快跟小喬和周瑜一起打敗他！';
+        setTimeout(() => { message.textContent = ''; }, 4000);
+      }
+    }
+
+    function updateScore() {
+      scoreBoard.textContent = '分數: ' + score;
+    }
+
+    function updateLife() {
+      lifeBoard.textContent = '生命: ' + xiaoQiao.life;
+    }
+
+    function gameWin() {
+      gameOver = true;
+      message.textContent = '恭喜！你和周瑜一起打敗了魔王，過上幸福快樂的日子！🎉';
+    }
+
+    let lastTime = 0;
+    function gameLoop(timestamp) {
+      if (!lastTime) lastTime = timestamp;
+      const deltaTime = timestamp - lastTime;
+      lastTime = timestamp;
+
+      if (!gameOver) {
+        update(deltaTime);
+        draw();
+        requestAnimationFrame(gameLoop);
+      }
+    }
+
+    function draw() {
+      // 畫背景圖，拉伸填滿整個畫布
+      if (backgroundImage.complete) {
+        ctx.drawImage(backgroundImage, 0, 0, gameWidth, gameHeight);
+      } else {
+        ctx.fillStyle = '#e6f2ff';
+        ctx.fillRect(0, 0, gameWidth, gameHeight);
+      }
+
+      // 小喬圖片
+      if (xiaoQiaoImage.complete) {
+        ctx.drawImage(xiaoQiaoImage, xiaoQiao.x, xiaoQiao.y, xiaoQiao.width, xiaoQiao.height);
+      } else {
+        ctx.fillStyle = '#ff69b4';
+        ctx.fillRect(xiaoQiao.x, xiaoQiao.y, xiaoQiao.width, xiaoQiao.height);
+      }
+
+      // 周瑜圖片
+      if (zhouYu.isActive) {
+        if (zhouYuImage.complete) {
+          ctx.drawImage(zhouYuImage, zhouYu.x, zhouYu.y, zhouYu.width, zhouYu.height);
+        } else {
+          ctx.fillStyle = '#4169e1';
+          ctx.fillRect(zhouYu.x, zhouYu.y, zhouYu.width, zhouYu.height);
+        }
+      }
+
+      // 聲波攻擊
+      soundWaves.forEach(wave => {
+        ctx.fillStyle = wave.color;
+        ctx.fillRect(wave.x, wave.y, wave.width, wave.height);
+      });
+
+      // 敵人（含魔王）
+      enemies.forEach(enemy => enemy.draw());
+    }
+
+    let enemySpawnTimer = 0;
+    const enemySpawnInterval = 60;
+
+    function spawnEnemyLoop() {
+      if (!gameOver) {
+        enemySpawnTimer++;
+        if (enemySpawnTimer >= enemySpawnInterval) {
+          spawnEnemy();
+          enemySpawnTimer = 0;
+        }
+        setTimeout(spawnEnemyLoop, 100);
+      }
+    }
+
+    function startGame() {
+      updateScore();
+      updateLife();
+      message.textContent = '用滑鼠或手指拖曳小喬移動，聲波會自動發射攻擊敵人！';
+      spawnEnemyLoop();
+      requestAnimationFrame(gameLoop);
+    }
+
+    startGame();
+
+  </script>
+</body>
+</html>
